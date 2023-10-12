@@ -4,8 +4,7 @@ from functools import partial
 import torch
 from torch import Tensor
 from torchquad import BaseIntegrator
-
-from .integrator import Batch1DIntegrator
+from pyro.distributions import Normal
 
 f64info = torch.finfo(torch.float64)
 EPSILON = torch.tensor(f64info.eps, dtype=torch.float64)
@@ -32,6 +31,8 @@ def stable_standard_density(
     x = x.double()
     alpha = alpha.double()
     beta = beta.double()
+
+    closed_form_solutions, closed_form_mask = _closed_form_special_cases(alpha, beta, x)
 
     if x.ndim == 0:
         x = x.unsqueeze(0)
@@ -69,15 +70,19 @@ def stable_standard_density(
     if integral.ndim == 0:
         integral = integral.unsqueeze(0)
 
-    integral[precomputed_terms.no_integral_mask] = 1.0
+    no_integral_mask = torch.logical_or(
+        precomputed_terms.no_integral_mask, closed_form_mask
+    )
+
+    integral[no_integral_mask] = 1.0
     integral[integral == 0.0] = EPSILON
 
     c2 = _c2(x, alpha, beta, precomputed_terms)
     c2[c2 == 0.0] = EPSILON
 
-    # out_log = c2.log() + integral.log()
-    # out = out_log.exp()
     out = integral * c2
+    if closed_form_mask.any():
+        out = torch.where(closed_form_mask, closed_form_solutions, out)
     out = out.clamp_min(1e-100)
 
     return out
@@ -91,6 +96,34 @@ def _round_inputs(alpha, beta, x, alpha_near_1_tolerance, x_near_0_tolerance_fac
     )
 
     return alpha, beta, x
+
+
+def _closed_form_special_cases(alpha: Tensor, beta: Tensor, x: Tensor):
+    out = torch.ones_like(x)
+
+    normal = alpha == 2.0
+    levy = torch.logical_and(alpha == 0.5, beta == 1.0)
+    cauchy = torch.logical_and(alpha == 1.0, beta == 0.0)
+    closed_form_solution_mask = normal.logical_or(levy).logical_or(cauchy)
+
+    if normal.any():
+        out = torch.where(
+            normal, Normal(0.0, torch.sqrt(torch.as_tensor(2))).log_prob(x).exp(), out
+        )
+
+    def _levy_pdf(x):  # from scipy implementation
+        return torch.where(
+            x < 0,
+            0.0,
+            1 / torch.sqrt(2 * torch.pi * x) / x * torch.exp(-1 / (2 * x)),
+        )
+
+    if levy.any():
+        out = torch.where(levy, _levy_pdf(x), out)
+    if cauchy.any():
+        out = torch.where(cauchy, 1 / (1 + x**2) / torch.pi, out)
+
+    return out, closed_form_solution_mask
 
 
 def _flip_x_beta_if_x_negative(x: Tensor, beta: Tensor):
