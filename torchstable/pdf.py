@@ -25,6 +25,10 @@ def stable_standard_density(
 ) -> Tensor:
     # Thm 3.3
 
+    if coords == "S0":
+        zeta = _zeta(alpha, beta)
+        x = x - zeta
+
     alpha, beta, x = _round_inputs(
         alpha, beta, x, alpha_near_1_tolerance, x_near_0_tolerance_factor
     )
@@ -32,10 +36,6 @@ def stable_standard_density(
     x = x.double()
     alpha = alpha.double()
     beta = beta.double()
-
-    if coords == "S0":
-        zeta = _zeta(alpha, beta)
-        x = x - zeta
 
     closed_form_solutions, closed_form_mask = _closed_form_special_cases(alpha, beta, x)
 
@@ -165,7 +165,7 @@ class PrecomputedTerms:
     cos_alphatheta0: Tensor
     alpha_over_alphaminus1: Tensor
     no_integral_mask: Tensor
-    alpha_neq1_term1: Tensor
+    alpha_neq1_log_term1: Tensor
 
 
 def _precomputed_terms(x, alpha, beta):
@@ -197,7 +197,7 @@ def _precomputed_terms(x, alpha, beta):
         cos_alphatheta0=cos_alphatheta0,
         alpha_over_alphaminus1=alpha_over_alphaminus1,
         no_integral_mask=no_integral_mask,
-        alpha_neq1_term1=alpha_neq1_term1,
+        alpha_neq1_log_term1=alpha_neq1_term1,
     )
 
 
@@ -215,7 +215,7 @@ def _g(
     ):
         mask = alpha_eq_1_mask.logical_or(precomputed_terms.no_integral_mask)
 
-        term1_log = precomputed_terms.alpha_neq1_term1
+        term1_log = precomputed_terms.alpha_neq1_log_term1
 
         term2_base = (
             (x + mask)
