@@ -2,7 +2,7 @@ import torch
 
 from pyro.distributions import Stable
 
-from .zeta import _zeta
+from .pdf import _zeta
 from .pdf import stable_standard_density, EPSILON
 from .integrator import Batch1DIntegrator
 
@@ -33,14 +33,12 @@ class StableWithLogProb(Stable):
             self._validate_sample(value)
 
         x = (value - self.loc) / self.scale
-        if self.coords == "S0":
-            zeta = _zeta(self.stability, self.skew)
-            x = x - zeta
         p = stable_standard_density(
             x,
             self.stability,
             self.skew,
             self._integrator,
+            self.coords,
             self._integration_N_gridpoints,
             compiled_integrate=self.use_compiled_integrate,
         )

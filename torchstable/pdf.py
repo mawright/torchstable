@@ -17,8 +17,9 @@ def stable_standard_density(
     alpha: Tensor,
     beta: Tensor,
     integrator: BaseIntegrator,
+    coords: str,
     integration_N_gridpoints=501,
-    alpha_near_1_tolerance=0.006,
+    alpha_near_1_tolerance=0.005,
     x_near_0_tolerance_factor=0.5e-2,
     compiled_integrate=True,
 ) -> Tensor:
@@ -31,6 +32,10 @@ def stable_standard_density(
     x = x.double()
     alpha = alpha.double()
     beta = beta.double()
+
+    if coords == "S0":
+        zeta = _zeta(alpha, beta)
+        x = x - zeta
 
     closed_form_solutions, closed_form_mask = _closed_form_special_cases(alpha, beta, x)
 
@@ -56,6 +61,7 @@ def stable_standard_density(
         _integrand,
         x=x,
         alpha=alpha,
+        beta=beta,
         precomputed_terms=precomputed_terms,
     )
     if compiled_integrate:
@@ -90,6 +96,7 @@ def stable_standard_density(
 
 def _round_inputs(alpha, beta, x, alpha_near_1_tolerance, x_near_0_tolerance_factor):
     alpha = torch.where(torch.abs(alpha - 1.0) < alpha_near_1_tolerance, 1.0, alpha)
+    # alpha = alpha
 
     x = torch.where(
         torch.abs(x) < x_near_0_tolerance_factor * alpha ** (1 / alpha), 0.0, x
@@ -157,8 +164,8 @@ class PrecomputedTerms:
     xpi_over_2beta: Tensor
     cos_alphatheta0: Tensor
     alpha_over_alphaminus1: Tensor
-    V_multiplier_for_alpha_neq_1: Tensor
     no_integral_mask: Tensor
+    alpha_neq1_term1: Tensor
 
 
 def _precomputed_terms(x, alpha, beta):
@@ -170,7 +177,7 @@ def _precomputed_terms(x, alpha, beta):
     alpha_theta0 = theta_0 * alpha
     pi_over_2beta = torch.pi / (2 * beta)
     twobeta_over_pi = 2 * beta / torch.pi
-    xpi_over_2beta = x * pi_over_2beta
+    xpi_over_2beta = x / twobeta_over_pi
     cos_alphatheta0 = torch.cos(alpha * theta_0)
     alpha_over_alphaminus1 = alpha / (alpha - 1 + EPSILON * alpha_eq_1)
 
@@ -179,8 +186,7 @@ def _precomputed_terms(x, alpha, beta):
         torch.logical_and(alpha == 1.0, beta == 0.0),
     )
 
-    alpha_neq1_term1 = cos_alphatheta0 ** (1 / (alpha - 1 + alpha_eq_1))
-    V_multiplier_for_alpha_neq_1 = alpha_neq1_term1
+    alpha_neq1_term1 = cos_alphatheta0.log() * (1 / (alpha - 1 + EPSILON * alpha_eq_1))
 
     return PrecomputedTerms(
         theta_0=theta_0,
@@ -190,13 +196,13 @@ def _precomputed_terms(x, alpha, beta):
         xpi_over_2beta=xpi_over_2beta,
         cos_alphatheta0=cos_alphatheta0,
         alpha_over_alphaminus1=alpha_over_alphaminus1,
-        V_multiplier_for_alpha_neq_1=V_multiplier_for_alpha_neq_1,
         no_integral_mask=no_integral_mask,
+        alpha_neq1_term1=alpha_neq1_term1,
     )
 
 
 def _g(
-    theta: Tensor, x: Tensor, alpha: Tensor, precomputed_terms: PrecomputedTerms
+    theta: Tensor, x: Tensor, alpha: Tensor, beta: Tensor, precomputed_terms: PrecomputedTerms
 ) -> Tensor:
     cos_theta = theta.cos()
 
@@ -209,8 +215,7 @@ def _g(
     ):
         mask = alpha_eq_1_mask.logical_or(precomputed_terms.no_integral_mask)
 
-        term1 = precomputed_terms.V_multiplier_for_alpha_neq_1
-        assert torch.all(term1 >= 0.0)
+        term1_log = precomputed_terms.alpha_neq1_term1
 
         term2_base = (
             (x + mask)
@@ -227,7 +232,7 @@ def _g(
         )
         assert torch.all(term3 >= 0.0)
 
-        out_log = term1.log() + term2_log + term3.log()
+        out_log = term1_log + term2_log + term3.log()
         out_log = out_log.clamp_max(MAX_LOG)
         out = ~mask * torch.exp(~mask * out_log)
         if out.isinf().any():
@@ -235,7 +240,7 @@ def _g(
         return out
 
     def alpha_eq_1(
-        theta: Tensor, precomputed_terms: PrecomputedTerms, alpha_eq_1_mask: Tensor
+        theta: Tensor, beta: Tensor, precomputed_terms: PrecomputedTerms, alpha_eq_1_mask: Tensor
     ):
         term1 = (1 + theta * precomputed_terms.twobeta_over_pi) / cos_theta
         term2_exponent = (precomputed_terms.pi_over_2beta + theta) * torch.tan(
@@ -249,7 +254,7 @@ def _g(
 
     alpha_eq_1_mask = alpha == 1.0
     _neq_1 = alpha_neq_1(theta, x, alpha, precomputed_terms, alpha_eq_1_mask)
-    _eq_1 = alpha_eq_1(theta, precomputed_terms, alpha_eq_1_mask)
+    _eq_1 = alpha_eq_1(theta, beta, precomputed_terms, alpha_eq_1_mask)
 
     out = torch.where(alpha_eq_1_mask, _eq_1, _neq_1)
     return out
@@ -259,11 +264,12 @@ def _integrand(
     theta: Tensor,
     x: Tensor,
     alpha: Tensor,
+    beta: Tensor,
     precomputed_terms: PrecomputedTerms,
 ):
     assert not torch.any(x < 0.0)  # we should have already flipped all the negative x's
 
-    g = _g(theta, x, alpha, precomputed_terms)
+    g = _g(theta, x, alpha, beta, precomputed_terms)
     g = g.clamp(EPSILON, 1e100)
     exp_minus_g = torch.exp(-g)
     out = g * exp_minus_g
@@ -309,7 +315,7 @@ def _c2(
         beta_eq_0_mask = beta == 0.0
         return torch.where(
             beta_eq_0_mask,
-            1 / (torch.pi * (1 + x**2)),
+            1 / (torch.pi * (1 + x**2)),  # repeating the cauchy case...
             1 / (2 * torch.abs(beta) + EPSILON * beta_eq_0_mask),
         )
 
@@ -325,3 +331,8 @@ def _integration_lower_bound(x, alpha, precomputed_terms: PrecomputedTerms):
     assert not torch.any(x < 0.0)  # we should have already flipped all the negative x's
 
     return torch.where(alpha == 1.0, -torch.pi / 2, -precomputed_terms.theta_0)
+
+
+def _zeta(alpha: Tensor, beta: Tensor) -> Tensor:
+    # pg 65
+    return torch.where(alpha == 1.0, 0.0, -beta * torch.tan(torch.pi * alpha / 2))
