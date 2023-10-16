@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import partial
+from typing import Union
 
 import torch
 from torch import Tensor
@@ -26,7 +27,7 @@ def stable_standard_density(
     # Thm 3.3
 
     if coords == "S0":
-        zeta = _zeta(alpha, beta)
+        zeta = _zeta(alpha, beta, alpha_near_1_tolerance)
         x = x - zeta
 
     alpha, x = _round_inputs(
@@ -201,7 +202,11 @@ def _precomputed_terms(x, alpha, beta):
 
 
 def _g(
-    theta: Tensor, x: Tensor, alpha: Tensor, beta: Tensor, precomputed_terms: PrecomputedTerms
+    theta: Tensor,
+    x: Tensor,
+    alpha: Tensor,
+    beta: Tensor,
+    precomputed_terms: PrecomputedTerms,
 ) -> Tensor:
     cos_theta = theta.cos()
 
@@ -236,7 +241,10 @@ def _g(
         return out
 
     def alpha_eq_1(
-        theta: Tensor, beta: Tensor, precomputed_terms: PrecomputedTerms, alpha_eq_1_mask: Tensor
+        theta: Tensor,
+        beta: Tensor,
+        precomputed_terms: PrecomputedTerms,
+        alpha_eq_1_mask: Tensor,
     ):
         term1 = (1 + theta * precomputed_terms.twobeta_over_pi) / cos_theta
         term2_exponent = (precomputed_terms.pi_over_2beta + theta) * torch.tan(
@@ -325,6 +333,12 @@ def _integration_lower_bound(x, alpha, precomputed_terms: PrecomputedTerms):
     return torch.where(alpha == 1.0, -torch.pi / 2, -precomputed_terms.theta_0)
 
 
-def _zeta(alpha: Tensor, beta: Tensor) -> Tensor:
+def _zeta(
+    alpha: Tensor, beta: Tensor, alpha_near_one_tolerance: Union[Tensor, float]
+) -> Tensor:
     # pg 65
-    return torch.where(alpha == 1.0, 0.0, -beta * torch.tan(torch.pi * alpha / 2))
+    return torch.where(
+        torch.abs(alpha - 1.0) < alpha_near_one_tolerance,
+        0.0,
+        -beta * torch.tan(torch.pi * alpha / 2),
+    )
