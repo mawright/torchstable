@@ -29,8 +29,8 @@ def stable_standard_density(
         zeta = _zeta(alpha, beta)
         x = x - zeta
 
-    alpha, beta, x = _round_inputs(
-        alpha, beta, x, alpha_near_1_tolerance, x_near_0_tolerance_factor
+    alpha, x = _round_inputs(
+        alpha, x, alpha_near_1_tolerance, x_near_0_tolerance_factor
     )
 
     x = x.double()
@@ -94,15 +94,14 @@ def stable_standard_density(
     return out
 
 
-def _round_inputs(alpha, beta, x, alpha_near_1_tolerance, x_near_0_tolerance_factor):
+def _round_inputs(alpha, x, alpha_near_1_tolerance, x_near_0_tolerance_factor):
     alpha = torch.where(torch.abs(alpha - 1.0) < alpha_near_1_tolerance, 1.0, alpha)
-    # alpha = alpha
 
     x = torch.where(
         torch.abs(x) < x_near_0_tolerance_factor * alpha ** (1 / alpha), 0.0, x
     )
 
-    return alpha, beta, x
+    return alpha, x
 
 
 def _closed_form_special_cases(alpha: Tensor, beta: Tensor, x: Tensor):
@@ -222,9 +221,6 @@ def _g(
             * cos_theta
             / torch.sin(precomputed_terms.alpha_theta0 + alpha * theta)
         )
-        # term2 = term2_base ** precomputed_terms.alpha_over_alphaminus1
-        # assert torch.all(term2 >= 0.0)
-        # term2 = term2.clamp_min(EPSILON)
         term2_log = term2_base.log() * precomputed_terms.alpha_over_alphaminus1
 
         term3 = (
@@ -250,8 +246,6 @@ def _g(
         term2 = torch.exp(alpha_eq_1_mask * term2_exponent)
         return term1 * (term2 * alpha_eq_1_mask)
 
-    # out = torch.where(alpha == 1.0, alpha_eq_1(theta, precomputed_terms), alpha_neq_1(theta, alpha, precomputed_terms))
-
     alpha_eq_1_mask = alpha == 1.0
     _neq_1 = alpha_neq_1(theta, x, alpha, precomputed_terms, alpha_eq_1_mask)
     _eq_1 = alpha_eq_1(theta, beta, precomputed_terms, alpha_eq_1_mask)
@@ -273,8 +267,6 @@ def _integrand(
     g = g.clamp(EPSILON, 1e100)
     exp_minus_g = torch.exp(-g)
     out = g * exp_minus_g
-    # if out.isnan().any():
-    # raise ValueError
     return out
 
 
