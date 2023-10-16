@@ -52,7 +52,8 @@ class StableWithLogProb(Stable):
             setattr(new, name, getattr(self, name).expand(batch_shape))
         new.coords = self.coords
         new._integrator = self._integrator
-        new._integrate_fn = self._integrate_fn
+        new._integration_N_gridpoints = self._integration_N_gridpoints
+        new.use_compiled_integrate = self.use_compiled_integrate
         super(Stable, new).__init__(batch_shape, validate_args=False)
         new._validate_args = self._validate_args
         return new
