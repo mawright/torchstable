@@ -8,9 +8,9 @@ from torchquad import BaseIntegrator
 from pyro.distributions import Normal
 
 f64info = torch.finfo(torch.float64)
-EPSILON = torch.tensor(f64info.eps, dtype=torch.float64)
-MAX = torch.tensor(f64info.max, dtype=torch.float64)
-MAX_LOG = torch.log(torch.tensor(1e100, dtype=torch.float64))
+EPSILON = torch.tensor(f64info.eps, dtype=torch.float64).item()
+MAX = torch.tensor(f64info.max, dtype=torch.float64).item()
+MAX_LOG = torch.log(torch.tensor(1e100, dtype=torch.float64)).item()
 
 
 def stable_standard_density(
