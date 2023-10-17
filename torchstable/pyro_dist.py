@@ -2,7 +2,6 @@ import torch
 
 from pyro.distributions import Stable
 
-from .pdf import _zeta
 from .pdf import stable_standard_density, EPSILON
 from .integrator import Batch1DIntegrator
 
