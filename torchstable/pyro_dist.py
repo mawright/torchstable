@@ -17,13 +17,15 @@ class StableWithLogProb(Stable):
         validate_args=None,
         integrator=None,
         integration_N_gridpoints=501,
-        use_compiled_integrate=True,
+        use_compiled_integrate=None,
     ):
         super().__init__(stability, skew, scale, loc, coords, validate_args)
         if integrator is None:
             self._integrator = Batch1DIntegrator()
+            self.use_compiled_integrate = use_compiled_integrate or False
         else:
             self._integrator = integrator
+            self.use_compiled_integrate = use_compiled_integrate or True
         self._integration_N_gridpoints = integration_N_gridpoints
         self.use_compiled_integrate = use_compiled_integrate
 
