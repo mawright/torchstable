@@ -219,4 +219,5 @@ def quantile_estimate(data):
         alpha != 1.0, zeta, zeta + 2 * beta * gamma * torch.log(gamma) / torch.pi
     )
 
-    return alpha, beta, delta0, gamma
+    # Note: different return order than scipy
+    return alpha, beta, gamma, delta0
