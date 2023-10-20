@@ -228,6 +228,6 @@ def quantile_loss(data, parametric_estimates):
 
 
 def cosine_decay(lr_0, t_max, t):
-    out = .5 * lr_0 * (1 + torch.cos(t / t_max * torch.tensor(torch.pi))),
+    out = .5 * lr_0 * (1 + torch.cos(t / t_max * torch.tensor(torch.pi)))
     out[t >= t_max] = 0.0
     return out
