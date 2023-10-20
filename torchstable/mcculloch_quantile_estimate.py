@@ -97,7 +97,7 @@ def quantile_estimate(data):
             ::-1
         ],
         device=device,
-        dtype=dtype
+        dtype=dtype,
     )
     beta_range = torch.tensor([0, 0.25, 0.5, 0.75, 1], device=device, dtype=dtype)
 
@@ -122,7 +122,7 @@ def quantile_estimate(data):
                 [2.588, 3.073, 4.534, 6.636, 9.144],
             ],
             device=device,
-            dtype=dtype
+            dtype=dtype,
         )
         .flipud()
         .T
@@ -149,7 +149,7 @@ def quantile_estimate(data):
                 [0, -0.061, -0.279, -0.659, -1.198],
             ],
             device=device,
-            dtype=dtype
+            dtype=dtype,
         )
         .flipud()
         .T
@@ -220,4 +220,8 @@ def quantile_estimate(data):
     )
 
     # Note: different return order than scipy
-    return alpha, beta, gamma, delta0
+    return torch.cat([alpha, beta, gamma, delta0], -1)
+
+
+def quantile_loss(data, parametric_estimates):
+    return F.mse_loss(parametric_estimates, quantile_estimate(data), reduction="none").sum(-1)
