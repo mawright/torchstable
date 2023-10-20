@@ -225,3 +225,9 @@ def quantile_estimate(data):
 
 def quantile_loss(data, parametric_estimates):
     return F.mse_loss(parametric_estimates, quantile_estimate(data), reduction="none").sum(-1)
+
+
+def cosine_decay(lr_0, t_max, t):
+    out = .5 * lr_0 * (1 + torch.cos(t / t_max * torch.tensor(torch.pi))),
+    out[t >= t_max] = 0.0
+    return out
