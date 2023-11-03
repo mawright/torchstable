@@ -1,5 +1,9 @@
+import warnings
+
 import torch
 from loguru import logger
+from autoray import numpy as anp
+from autoray import infer_backend
 
 from torchquad import Gaussian
 
@@ -16,6 +20,8 @@ class Batch1DIntegrator(Gaussian):
         assert roots.ndim == 1
         assert integration_domain.ndim == 2
         assert integration_domain.shape[-1] == 2
+
+        roots = roots.to(integration_domain.device)
 
         a = integration_domain[:, 0]
         b = integration_domain[:, 1]
@@ -35,8 +41,9 @@ class Batch1DIntegrator(Gaussian):
         grid_points, hs, n_per_dim = self.calculate_grid(N, integration_domain)
 
         logger.debug("Evaluating integrand on the grid.")
+        weights = self._weights(n_per_dim, dim, backend).to(grid_points.device)
         function_values, num_points = self.evaluate_integrand(
-            fn, grid_points, weights=self._weights(n_per_dim, dim, backend)
+            fn, grid_points, weights=weights
         )
         self._nr_of_fevals = num_points
 
@@ -62,20 +69,71 @@ class Batch1DIntegrator(Gaussian):
     def _apply_composite_rule(cur_dim_areas, dim, hs, domain):
         return 0.5 * (domain[:, 1] - domain[:, 0]) * cur_dim_areas.sum(-1)
 
+    @staticmethod
+    def evaluate_integrand(fn, points, weights=None, args=None):
+        """Evaluate the integrand function at the passed points
+
+        Args:
+            fn (function): Integrand function
+            points (backend tensor): Integration points
+            weights (backend tensor, optional): Integration weights. Defaults to None.
+            args (list or tuple, optional): Any arguments required by the function. Defaults to None.
+
+        Returns:
+            backend tensor: Integrand function output
+            int: Number of evaluated points
+
+        Note: This method is copied from torchquad BaseIntegrator to add a torch device transfer
+        """
+        num_points = points.shape[0]
+
+        if args is None:
+            args = ()
+
+        result = fn(points, *args)
+
+        if infer_backend(result) != infer_backend(points):
+            warnings.warn(
+                "The passed function's return value has a different numerical backend than the passed points. Will try to convert. Note that this may be slow as it results in memory transfers between CPU and GPU, if torchquad uses the GPU."
+            )
+            result = anp.array(result, like=points)
+
+        num_results = result.shape[0]
+        if num_results != num_points:
+            raise ValueError(
+                f"The passed function was given {num_points} points but only returned {num_results} value(s)."
+                f"Please ensure that your function is vectorized, i.e. can be called with multiple evaluation points at once. It should return a tensor "
+                f"where first dimension matches length of passed elements. "
+            )
+
+        if weights is not None:
+            if (
+                len(result.shape) > 1
+            ):  # if the the integrand is multi-dimensional, we need to reshape/repeat weights so they can be broadcast in the *=
+                integrand_shape = anp.array(
+                    result.shape[1:],
+                    like=infer_backend(points),
+                    device=result.device,  # Note: device arg added
+                )
+                weights = anp.repeat(
+                    anp.expand_dims(weights, axis=1), anp.prod(integrand_shape)
+                ).reshape((weights.shape[0], *(integrand_shape)))
+            result *= weights
+
+        return result, num_points
+
     def compiled_integrate(self, fn, dim, N, integration_domain, backend="torch"):
         if (
             self._compiled_integrate_fn is None
             or self._compiled_integrate_dim != dim
             or self._compiled_integrate_N != N
         ):
-
             self._compiled_integrate_fn = self.get_jit_compiled_integrate(
                 dim, N, integration_domain, backend
             )
             self._compiled_integrate_dim = dim
             self._compiled_integrate_N = N
         return self._compiled_integrate_fn(fn, integration_domain)
-
 
     def get_jit_compiled_integrate(
         self, dim, N=None, integration_domain=None, backend=None
